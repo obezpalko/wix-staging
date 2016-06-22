@@ -1,6 +1,7 @@
 # Compiled files
 *.tfstate
 *.tfstate.backup
-
+/terraform/.build
+/terraform/.chef
 # Packer
 /packer/.staging*

@@ -3,7 +3,7 @@ BUILD = staging
 
 .PHONY: pack
 
-.DEFAULT: pack
+DEFAULT: pack
 
 .SUFFIXES:
 .SUFFIXES: .json
