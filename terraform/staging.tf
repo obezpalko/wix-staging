@@ -104,73 +104,49 @@ resource "aws_instance" "staging-instance" {
     }
 }
 
-/*
 #Separated to null_resource to prevent recreation of the instance in case of failure
-resource "null_resource" "nat-instance" {
+resource "null_resource" "staging-instance" {
     triggers {
-        nat_instance_id = "${aws_instance.nat-instance.id}"
+        staging_instance_id = "${aws_instance.staging-instance.id}"
     }
-    depends_on = ["aws_network_interface.nat-instance-eni"]
-
     connection={
-        host="${aws_eip.nat-instance-eip.public_ip}"
-        user="root"
+        host="${aws_instance.staging-instance.public_ip}"
+        user="admin"
         private_key="${file("~/.ssh/zozo.pem")}"
         port="22"
     }
 
     #add external ip of the pfsence node to chef iptables so it will allow access for chef
     provisioner "local-exec" {
-        command = "echo ${aws_instance.nat-instance.public_ip} pfsense-${var.az}.${lookup(var.grid_chef_environment, var.region)}.wixpress.com"
+        command = "echo ${aws_instance.staging-instance.public_ip} staging0.awz.wixpress.com"
     }
 
     provisioner "local-exec" {
-        command = "knife node delete -y pfsense-${var.az}.${lookup(var.grid_chef_environment, var.region)}.wixpress.com || echo 'Not Found'"
+        command = "knife node delete -y staging0.awz.wixpress.com || echo 'Not Found'"
     }
 
     provisioner "local-exec" {
-        command = "knife client delete -y pfsense-${var.az}.${lookup(var.grid_chef_environment, var.region)}.wixpress.com || echo Not Found"
+        command = "knife client delete -y staging0.awz.wixpress.com || echo Not Found"
     }
 
     #NOTE 
     provisioner "local-exec" {
-        command = "ssh chef.wixpress.com 'sudo iptables -A INPUT -s ${aws_eip.nat-instance-eip.public_ip}/32 -p tcp -m tcp --dport 443 -j ACCEPT'"
+        command = "ssh chef.wixpress.com 'sudo iptables -A INPUT -s ${aws_instance.staging-instance.public_ip}/32 -p tcp -m tcp --dport 443 -j ACCEPT'"
     }
 
     provisioner "chef"  {
         #TODO need to change based on location
-        skip_install = true
-        environment = "production_ccd"
-        run_list = ["wix-pfsense"]
-        node_name = "pfsense-${var.az}.${lookup(var.grid_chef_environment, var.region)}.wixpress.com"
+        skip_install = false
+        environment = "staging"
+        run_list = ["wix-base-minimal", "wix-users"]
+        node_name = "staging0.awz.wixpress.com"
         secret_key = "${file(".chef/data_bag_secret")}"
         server_url = "https://chef.wixpress.com/"
         validation_client_name = "chef-validator"
         validation_key = "${file(".chef/validation.pem")}"
-        #version = "12.4.1"
+        version = "12.4.1"
     }
 }
-#the order here is important. it will not work after the creation of additional interface.
-resource "aws_eip" "nat-instance-eip" {
-  instance = "${aws_instance.nat-instance.id}"
-  #network_interface = "${aws_network_interface.nat-instance-eni.id}"
-  associate_with_private_ip = "${aws_instance.nat-instance.private_ip}"
-  vpc      = true
-}
-
-resource "aws_network_interface" "nat-instance-eni" {
-    subnet_id         = "${aws_subnet.wix-code-int-nat-subnet.id}"
-    description       = "Internal network interface"
-    private_ips       = ["${lookup(var.grid_vpc_subnet, var.region)}${255-1-lookup(var.zone_first, var.az)}.254"]
-    security_groups   = ["${aws_security_group.NATSG.id}"]
-    source_dest_check = false
-    depends_on        = [ "aws_eip.nat-instance-eip", "aws_route_table.wix-code-mgmnt-docker-hosts", "aws_route_table.wix-code-ext-rt" ]
-    attachment {
-        instance     = "${aws_instance.nat-instance.id}"
-        device_index = 1
-    }
-}
-*/
 ###################### ROUTING TABLES ##############
 resource "aws_route_table" "wix-staging-rt" {
     vpc_id     = "${aws_vpc.wix-staging.id}"
@@ -186,74 +162,6 @@ resource "aws_route_table" "wix-staging-rt" {
         "Name" = "wix-staging routing table"
     }
 }
-/*
-resource "aws_route_table" "wix-code-nat-ext-rt" {
-    vpc_id  = "${aws_vpc.wix-code-docker-grid.id}"
-
-    #TODO check if that route is neeed.
-    route {
-        cidr_block = "${lookup(var.main_vpc_subnet, var.region)}${var.vpc_range}"
-        vpc_peering_connection_id = "${aws_vpc_peering_connection.wix-code-to-wix-aws.id}"
-    }
-
-    route {
-        cidr_block = "${var.aus_vpn_gw}"
-        gateway_id = "${aws_vpn_gateway.grid_to_austin_vpn_gw.id}"
-    }
-
-    route {
-        cidr_block = "0.0.0.0/0"
-        gateway_id = "${aws_internet_gateway.wix-code-ig.id}"
-    }
-
-    propagating_vgws = []
-
-    tags {
-        "Name" = "wix-code-nat-ext-rt-${var.region}"
-    }
-}
-
-resource "aws_route_table" "wix-code-mgmnt-docker-hosts" {
-    vpc_id  = "${aws_vpc.wix-code-docker-grid.id}"
-    route {
-        cidr_block = "${lookup(var.main_vpc_subnet, var.region)}${var.vpc_range}"
-        vpc_peering_connection_id = "${aws_vpc_peering_connection.wix-code-to-wix-aws.id}"
-    }
-
-    #TODO - check if this route is used by packer 
-    route {
-        cidr_block = "0.0.0.0/0"
-        instance_id = "${aws_instance.nat-instance.id}"
-    }
-    propagating_vgws = ["${aws_vpn_gateway.grid_to_austin_vpn_gw.id}"]
-    tags {
-        "Name" = "wix-code-mgmnt-docker-hosts ${var.region}${var.az}"
-    }
-}
-
-resource "aws_route_table" "wix-code-internal-only-rt" {
-    vpc_id  = "${aws_vpc.wix-code-docker-grid.id}"
-    tags {
-        "Name" = "wix-code-internal-only ${var.region}"
-    }
-}
-
-############## ROUTE TABLE ASSOCIATION #####################
-#
-#TODO wrong in C zone
-resource "aws_route_table_association" "wix-code-ext-rt-to-wix-code-dockers-ext-subnet" {
-    route_table_id = "${aws_route_table.wix-code-ext-rt.id}"
-    subnet_id = "${aws_subnet.wix-code-dockers-ext-subnet.id}"
-}
-resource "aws_route_table_association" "wix-code-mgmnt-docker-hosts-to-wix-code-mgmnt-subnet" {
-    route_table_id = "${aws_route_table.wix-code-mgmnt-docker-hosts.id}"
-    subnet_id = "${aws_subnet.wix-code-mgmnt-subnet.id}"
-}
-resource "aws_route_table_association" "wix-code-nat-ext-rt-to-wix-code-ext-nat" {
-    route_table_id = "${aws_route_table.wix-code-nat-ext-rt.id}"
-    subnet_id = "${aws_subnet.wix-code-ext-nat.id}"
-}
-*/
 resource "aws_route_table_association" "wix-stagingdefault-route" {
     route_table_id = "${aws_route_table.wix-staging-rt.id}"
     subnet_id = "${aws_subnet.wix-staging-main-subnet.id}"
