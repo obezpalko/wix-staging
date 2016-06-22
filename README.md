@@ -1,3 +1,3 @@
 # wix-staging
-. packer - base image
-. terraform - infrastructure
+* packer - base image
+* terraform - infrastructure
