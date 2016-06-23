@@ -138,7 +138,7 @@ resource "null_resource" "staging-instance" {
         #TODO need to change based on location
         skip_install = false
         environment = "staging"
-        run_list = ["wix-base-minimal", "wix-users"]
+        run_list = ["wix-users", "wix-base"]
         node_name = "staging0.awz.wixpress.com"
         secret_key = "${file(".chef/data_bag_secret")}"
         server_url = "https://chef.wixpress.com/"
