@@ -56,6 +56,15 @@ resource "aws_subnet" "wix-staging-main-subnet" {
         "Name" = "wix-staging subnet"
     }
 }
+resource "aws_subnet" "wix-staging-internal-subnet" {
+    vpc_id                  = "${aws_vpc.wix-staging.id}"
+    cidr_block              = "10.100.100.0/24"
+    availability_zone       = "us-west-2b"
+    map_public_ip_on_launch = false
+    tags {
+        "Name" = "wix-staging internal subnet"
+    }
+}
 ############## SECURITY GROUPS ##############
 resource "aws_security_group" "wix-staging-main-sg" {
     name        = "Main SG"
@@ -129,16 +138,21 @@ resource "null_resource" "staging-instance" {
         command = "knife client delete -y staging0.awz.wixpress.com || echo Not Found"
     }
 
-    #NOTE 
+    # open iptables on chef
     provisioner "local-exec" {
         command = "ssh chef.wixpress.com 'sudo iptables -A INPUT -s ${aws_instance.staging-instance.public_ip}/32 -p tcp -m tcp --dport 443 -j ACCEPT'"
     }
+    # open iptables on gems
+    provisioner "local-exec" {
+        command = "ssh root@gems.wixpress.com 'iptables -A INPUT -s ${aws_instance.staging-instance.public_ip}/32 -p tcp -m tcp --dport 443 -j ACCEPT'"
+    }
+
 
     provisioner "chef"  {
         #TODO need to change based on location
         skip_install = false
         environment = "staging"
-        run_list = ["wix-users", "wix-base"]
+        run_list = ["wix-users::sysadmins", "sudo"]
         node_name = "staging0.awz.wixpress.com"
         secret_key = "${file(".chef/data_bag_secret")}"
         server_url = "https://chef.wixpress.com/"
@@ -165,4 +179,14 @@ resource "aws_route_table" "wix-staging-rt" {
 resource "aws_route_table_association" "wix-stagingdefault-route" {
     route_table_id = "${aws_route_table.wix-staging-rt.id}"
     subnet_id = "${aws_subnet.wix-staging-main-subnet.id}"
+}
+
+resource "aws_network_interface" "staging-instance-eni" {
+    subnet_id         = "${aws_subnet.wix-staging-internal-subnet.id}"
+    description       = "Internal network interface"
+    source_dest_check = false
+    attachment {
+        instance     = "${aws_instance.staging-instance.id}"
+        device_index = 1
+    }
 }
