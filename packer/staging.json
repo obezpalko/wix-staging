@@ -1,87 +1,106 @@
 {
-  "builders": [
-    {
-      "name" :                 "{{user `name`}}",
-      "type" :                 "amazon-ebs",
-      "access_key" :           "{{user `aws_access_key`}}",
-      "secret_key" :           "{{user `aws_secret_key`}}",
-      "region" :               "{{user `region`}}",
-      "vpc_id" :               "{{user `vpc_id` }}",
-      "subnet_id" :            "{{user `subnet_id` }}",
-      "ssh_keypair_name" :     "{{user `ssh_keypair_name`}}",
-      "ssh_private_key_file" : "{{user `ssh_private_key_file`}}",
-      "source_ami" :           "{{user `source_ami`}}",
-      "instance_type" :        "{{user `instance_type`}}",
-      "ssh_username" :         "{{user `ssh_username`}}",
-      "ssh_timeout" :          "{{user `ssh_timeout`}}",
-      "ami_name" :             "{{user `name`}} {{timestamp}}",
-      "ami_description" :      "{{user `name`}} AMI",
-      "run_tags" : { 
-          "ami-create": "{{user `name`}}", "source-ami" : "{{user `source_ami`}}" 
+   "provisioners" : [
+      {
+         "inline" : [
+            "echo Start base provisioning",
+            "echo deb http://http.us.debian.org/debian `/usr/bin/lsb_release -cs` main non-free contrib > /etc/apt/sources.list",
+            "apt-get update",
+            "apt-get -y install curl sysstat wget cloud-initramfs-growroot dkms linux-headers-`uname -r`",
+            "[ -e /etc/udev/rules.d/53-ec2-network-interfaces.rules ] && rm /etc/udev/rules.d/53-ec2-network-interfaces.rules",
+            "mkdir -p /var/log/journal",
+            "systemd-tmpfiles --create --prefix /var/log/journal",
+            "systemctl preset-all",
+            "echo Finished base provisioning"
+         ],
+         "execute_command" : "{{ .Vars }} sudo -E sh '{{ .Path }}'",
+         "type" : "shell"
       },
-      "tags" :            { 
-          "ami": "{{user `name`}}" 
+      {
+         "inline" : [
+            "wget -T 30 http://downloads.sourceforge.net/project/e1000/ixgbevf%20stable/${ixgbevf_version}/ixgbevf-${ixgbevf_version}.tar.gz",
+            "tar -xzf ixgbevf-${ixgbevf_version}.tar.gz",
+            "mv ixgbevf-${ixgbevf_version} /usr/src/",
+            "echo -n 'PACKAGE_NAME=\"ixgbevf\"\nPACKAGE_VERSION=\"${ixgbevf_version}\"\nCLEAN=\"cd src/; make clean\"\nMAKE=\"cd src/; make BUILD_KERNEL=`uname -r`\"\nBUILT_MODULE_LOCATION[0]=\"src/\"\nBUILT_MODULE_NAME[0]=\"ixgbevf\"\nDEST_MODULE_LOCATION[0]=\"/updates\"\nDEST_MODULE_NAME[0]=\"ixgbevf\"\nAUTOINSTALL=\"yes\"\n' > /usr/src/ixgbevf-$ixgbevf_version/dkms.conf",
+            "dkms add -m ixgbevf -v ${ixgbevf_version}",
+            "dkms build -m ixgbevf -v ${ixgbevf_version}",
+            "dkms install -m ixgbevf -v ${ixgbevf_version}",
+            "update-initramfs -c -k all || update-initramfs -u -k all",
+            "[ -e /boot/grub/device.map ] && rm /boot/grub/device.map",
+            "update-grub",
+            "echo Finished dkms updating"
+         ],
+         "execute_command" : "{{ .Vars }} sudo -E sh '{{ .Path }}'",
+         "environment_vars" : [
+            "ixgbevf_version={{user `ixgbevf_version`}}"
+         ],
+         "type" : "shell"
       },
-      "ssh_private_ip" :              false,
-      "associate_public_ip_address" : true,
-      "enhanced_networking" :         true
-    }
-  ],
-  "provisioners": [
-    {
-      "type": "shell",
-      "execute_command": "{{ .Vars }} sudo -E sh '{{ .Path }}'",
-      "inline": [
-        "echo Start base provisioning",
-        "echo deb http://http.us.debian.org/debian `/usr/bin/lsb_release -cs` main non-free contrib > /etc/apt/sources.list",
-        "apt-get update",
-        "apt-get -y install curl sysstat wget cloud-initramfs-growroot dkms linux-headers-`uname -r`",
-        "[ -e /etc/udev/rules.d/53-ec2-network-interfaces.rules ] && rm /etc/udev/rules.d/53-ec2-network-interfaces.rules",
-        "mkdir -p /var/log/journal",
-        "systemd-tmpfiles --create --prefix /var/log/journal",
-        "systemctl preset-all",
-        "echo Finished base provisioning"
-      ]
-    },
-    {
-      "type": "shell",
-      "execute_command": "{{ .Vars }} sudo -E sh '{{ .Path }}'",
-      "environment_vars" : ["ixgbevf_version={{user `ixgbevf_version`}}"],
-      "inline": [
-          "wget -T 30 http://downloads.sourceforge.net/project/e1000/ixgbevf%20stable/${ixgbevf_version}/ixgbevf-${ixgbevf_version}.tar.gz",
-          "tar -xzf ixgbevf-${ixgbevf_version}.tar.gz",
-          "mv ixgbevf-${ixgbevf_version} /usr/src/",
-          "echo -n 'PACKAGE_NAME=\"ixgbevf\"\nPACKAGE_VERSION=\"${ixgbevf_version}\"\nCLEAN=\"cd src/; make clean\"\nMAKE=\"cd src/; make BUILD_KERNEL=`uname -r`\"\nBUILT_MODULE_LOCATION[0]=\"src/\"\nBUILT_MODULE_NAME[0]=\"ixgbevf\"\nDEST_MODULE_LOCATION[0]=\"/updates\"\nDEST_MODULE_NAME[0]=\"ixgbevf\"\nAUTOINSTALL=\"yes\"\n' > /usr/src/ixgbevf-$ixgbevf_version/dkms.conf",
-          "dkms add -m ixgbevf -v ${ixgbevf_version}",
-          "dkms build -m ixgbevf -v ${ixgbevf_version}",
-          "dkms install -m ixgbevf -v ${ixgbevf_version}",
-          "update-initramfs -c -k all || update-initramfs -u -k all",
-          "[ -e /boot/grub/device.map ] && rm /boot/grub/device.map",
-          "update-grub",
-          "echo Finished dkms updating"
-      ]
-    },
-    {
-      "type": "shell",
-      "execute_command": "{{ .Vars }} sudo -E sh '{{ .Path }}'",
-      "inline": [
-        "echo Run security updates",
-        "/usr/bin/unattended-upgrade -d",
-        "echo Cleanup...",
-        "apt-get remove --purge  -y dkms linux-headers-3.16.0-4-amd64",
-        "apt-get -y autoremove",
-        "apt-get -y clean",
-        "echo Clean sensu configs",
-        "/etc/init.d/sensu-client_delete_on_shutdown stop",
-        "rm /etc/sensu/conf.d/client.json",
-        "rm -rf /tmp/*",
-        "rm -rf /ops",
-        "find /var/log/ -type f -delete",
-        "echo Finished cleaup",
-        "echo Finished provisioning"
-      ]
-    }
-  ],
-  "post-processors": [
-  ]
+      {
+         "type" : "shell",
+         "inline" : [
+            "echo Install chef",
+            "wget https://packages.chef.io/stable/debian/8/chef_12.11.18-1_amd64.deb",
+            "echo 'a79378be1c0eeed548fbd19fef0f1a1af25b70abf1db1b4ea1a40a90a0bafa31  chef_12.11.18-1_amd64.deb' | sha256sum --check - && dpkg -i chef_12.11.18-1_amd64.deb"
+         ],
+         "execute_command" : "{{ .Vars }} sudo -E sh '{{ .Path }}'"
+      },
+      {
+         "type" : "shell",
+         "inline" : [
+            "echo Install packages",
+            "apt-get install -y apt-transport-https gcc build-essential screen tmux psmisc sysstat curl rsync strace bash-completion zsh sudo dnsutils tcpdump iftop lsof iproute rpcbind nfs-common unzip telnet traceroute lshw mtr bc iotop libxml2-utils libwww-perl unattended-upgrades wget tzdata vim htop"
+         ],
+         "execute_command" : "{{ .Vars }} sudo -E sh '{{ .Path }}'"
+      },
+      {
+         "type" : "shell",
+         "inline" : [
+            "echo Run security updates",
+            "/usr/bin/unattended-upgrade -d",
+            "echo Cleanup...",
+            "apt-get remove --purge  -y dkms linux-headers-3.16.0-4-amd64",
+            "apt-get -y autoremove",
+            "apt-get -y clean",
+            "echo Clean sensu configs",
+            "/etc/init.d/sensu-client_delete_on_shutdown stop",
+            "rm /etc/sensu/conf.d/client.json",
+            "rm -rf /tmp/*",
+            "rm -rf /ops",
+            "find /var/log/ -type f -delete",
+            "echo Finished cleaup",
+            "echo Finished provisioning"
+         ],
+         "execute_command" : "{{ .Vars }} sudo -E sh '{{ .Path }}'"
+      }
+   ],
+   "builders" : [
+      {
+         "vpc_id" : "{{user `vpc_id` }}",
+         "ami_description" : "{{user `name`}} AMI",
+         "access_key" : "{{user `aws_access_key`}}",
+         "tags" : {
+            "ami" : "{{user `name`}}"
+         },
+         "source_ami" : "{{user `source_ami`}}",
+         "associate_public_ip_address" : true,
+         "run_tags" : {
+            "source-ami" : "{{user `source_ami`}}",
+            "ami-create" : "{{user `name`}}"
+         },
+         "ssh_username" : "{{user `ssh_username`}}",
+         "type" : "amazon-ebs",
+         "secret_key" : "{{user `aws_secret_key`}}",
+         "ssh_private_ip" : false,
+         "ssh_private_key_file" : "{{user `ssh_private_key_file`}}",
+         "subnet_id" : "{{user `subnet_id` }}",
+         "enhanced_networking" : true,
+         "name" : "{{user `name`}}",
+         "ami_name" : "{{user `name`}} {{timestamp}}",
+         "region" : "{{user `region`}}",
+         "ssh_keypair_name" : "{{user `ssh_keypair_name`}}",
+         "instance_type" : "{{user `instance_type`}}",
+         "ssh_timeout" : "{{user `ssh_timeout`}}"
+      }
+   ],
+   "post-processors" : []
 }

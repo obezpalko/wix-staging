@@ -1,15 +1,15 @@
 {
-  "source_ami" :           "ami-116d857a",
-  "name" :                 "debian8-base",
-  "ssh_username" :         "admin",
-  "scripts_dir" :          "scripts/debian",
-  "config_dir" :           "config",
-  "instance_type" :        "m4.large",
-  "ssh_keypair_name" :     "zozo",
-  "ssh_timeout" :          "10m",
-  "region" :               "us-east-1",
-  "vpc_id" :               "vpc-af9726ce",
-  "subnet_id" :            "subnet-b49726d5",
-  "comment" :              "Basic ami for staging",
-  "ixgbevf_version" :      "3.1.2"
+   "ssh_timeout" : "10m",
+   "region" : "us-west-2",
+   "name" : "debian8-base",
+   "config_dir" : "config",
+   "subnet_id" : "subnet-f7731093",
+   "ssh_keypair_name" : "zozo",
+   "instance_type" : "m4.large",
+   "ssh_username" : "admin",
+   "source_ami" : "ami-98e114f8",
+   "scripts_dir" : "scripts/debian",
+   "comment" : "Basic ami for staging",
+   "ixgbevf_version" : "3.1.2",
+   "vpc_id" : "vpc-b25023d6"
 }
