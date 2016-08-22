@@ -33,13 +33,12 @@ pull push: $(PREFIX)/.init
 plan apply refresh destroy: $(PREFIX)/.init pull
 	export $(PARAMS) && \
 	cd $(PREFIX)/$${REGION}$(AZ) && \
-	terraform $@ -var-file=$(CURDIR)/staging.tfvars -var region=$${REGION} -var az=$(AZ)
+	terraform $@ -var region=$${REGION} -var az=$(AZ)
 
 plan-destroy: init
 	export $(PARAMS) && \
 	cd $(PREFIX)/$${REGION}$(AZ) && \
-	terraform plan -destroy \
-		-var-file=$(CURDIR)/staging.tfvars -var region=$${REGION} -var az=$(AZ)
+	terraform plan -destroy -var region=$${REGION} -var az=$(AZ)
 
 graph show: $(PREFIX)/.init
 	export $(PARAMS) && \

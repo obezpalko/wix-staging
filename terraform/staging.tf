@@ -1,22 +1,26 @@
 ################# VARIABLES ################
-variable "region" {}
-variable "az" {}
-variable "vpc_range" {}
-variable "aus_vpn_gw" {}
+variable "region" { default = "us-west-2" }
+variable "az" { default = "c" }
+variable "aus_vpn_gw" { default = "cgw-0cf02912" }
 variable "zone_first" { default = {} }
 variable "pfsense_ami" { default = {} }
 variable "main_vpc_subnet" { default = {} }
 variable "grid_vpc_subnet" { default = {} }
 variable "main_vpc" { default = {} }
-variable "owner" {}
 variable "main_chef_environment" { default = {} }
 variable "grid_chef_environment" { default = {} }
 variable "count" {default = "1" }
+variable "office_networks" {
+  default = [ "10.37.0.0/24", "172.28.0.0/14", "192.168.28.0/22", "192.168.36.0/22", "192.168.40.0/21", "192.168.199.0/24" ]
+}
+variable "aus_networks" {
+  default = [ "172.16.0.0/16", "172.14.0.0/16" ]
+}
 
 ################# VPC #################
 resource "aws_vpc" "wix-staging" {
     cidr_block           = "10.100.0.0/16"
-    enable_dns_hostnames = false
+    enable_dns_hostnames = true
     enable_dns_support   = true
     instance_tenancy     = "default"
     tags {
@@ -86,9 +90,8 @@ resource "aws_instance" "staging-instance" {
     subnet_id                   = "${aws_subnet.wix-staging-main-subnet.id}"
     vpc_security_group_ids      = ["${aws_security_group.wix-staging-main-sg.id}"]
     associate_public_ip_address = true
-    #private_ip                  = "${lookup(var.grid_vpc_subnet, var.region)}${255-lookup(var.zone_first, var.az)}.254"
+    # private_ip                  = "${lookup(var.grid_vpc_subnet, var.region)}${255-lookup(var.zone_first, var.az)}.254"
     source_dest_check           = 0
-    #TODO remove the below comment
     disable_api_termination     = false
     root_block_device {
         volume_type           = "gp2"
@@ -151,26 +154,30 @@ resource "null_resource" "staging-instance" {
         version = "12.11.18"
     }
 }
-###################### ROUTING TABLES ##############
-resource "aws_route_table" "wix-staging-rt" {
-    vpc_id     = "${aws_vpc.wix-staging.id}"
-
-    route {
-        cidr_block = "0.0.0.0/0"
-        gateway_id = "${aws_internet_gateway.wix-staging-ig.id}"
-    }
-
-    propagating_vgws = []
-
-    tags {
-        "Name" = "wix-staging routing table"
-    }
-}
-resource "aws_route_table_association" "wix-stagingdefault-route" {
-    route_table_id = "${aws_route_table.wix-staging-rt.id}"
-    subnet_id = "${aws_subnet.wix-staging-main-subnet.id}"
-}
-
+# ###################### ROUTING TABLES ##############
+# resource "aws_route_table" "wix-staging-rt" {
+#     vpc_id     = "${aws_vpc.wix-staging.id}"
+# 
+#     route {
+#         cidr_block = "0.0.0.0/0"
+#         gateway_id = "${aws_internet_gateway.wix-staging-ig.id}"
+#     }
+#     route {
+#       cidr_block = "172.16.0.0/16"
+#       gateway_id = "${aws_vpn_gateway.staging_vpn_gw.id}"
+#     }
+# 
+#     propagating_vgws = []
+# 
+#     tags {
+#         "Name" = "wix-staging routing table"
+#     }
+# }
+# resource "aws_route_table_association" "wix-stagingdefault-route" {
+#     route_table_id = "${aws_route_table.wix-staging-rt.id}"
+#     subnet_id = "${aws_subnet.wix-staging-main-subnet.id}"
+# }
+# 
 resource "aws_network_interface" "staging-instance-eni" {
     count             = "${var.count}"
     subnet_id         = "${aws_subnet.wix-staging-internal-subnet.id}"
@@ -228,3 +235,59 @@ resource "aws_route53_record" "staging" {
 #   records    = ["${aws_network_interface.staging-instance-eni.*.private_ips[count.index]}"]
 # }
 
+resource "aws_vpn_gateway" "staging_vpn_gw" {
+  vpc_id    = "${aws_vpc.wix-staging.id}"
+  tags      = {
+    Name    = "gw staging to austin"
+  }
+}
+
+resource "aws_customer_gateway" "ccdore_aus_customer_gw" {
+  bgp_asn     = "65000"
+  ip_address  = "216.139.213.148"
+  type        = "ipsec.1"
+  tags {
+    "Name"  = "ccdore_aus_customer_gw"
+  }
+}
+
+resource "aws_customer_gateway" "office" {
+  bgp_asn     = "65017"
+  ip_address  = "91.199.119.254"
+  type        = "ipsec.1"
+  tags {
+    "Name"  = "TLV office"
+  }
+}
+
+resource "aws_vpn_connection" "staging2austin" {
+  customer_gateway_id = "${aws_customer_gateway.ccdore_aus_customer_gw.id}"
+  vpn_gateway_id      = "${aws_vpn_gateway.staging_vpn_gw.id}"
+  type                = "ipsec.1"
+  static_routes_only  = true
+  tags                = {
+    Name = "staging 2 austin ipsec connection"
+  }
+}
+
+resource "aws_vpn_connection_route" "aus" {
+  count                   = "${length(var.aus_networks)}"
+  destination_cidr_block  = "${var.aus_networks[count.index]}"
+  vpn_connection_id       = "${aws_vpn_connection.staging2austin.id}"
+}
+
+resource "aws_vpn_connection" "staging2office" {
+  customer_gateway_id = "${aws_customer_gateway.office.id}"
+  vpn_gateway_id      = "${aws_vpn_gateway.staging_vpn_gw.id}"
+  type                = "ipsec.1"
+  static_routes_only  = true
+  tags                = {
+    Name = "staging 2 TLV office ipsec connection"
+  }
+}
+
+resource "aws_vpn_connection_route" "office" {
+  count                   = "${length(var.office_networks)}"
+  destination_cidr_block  = "${var.office_networks[count.index]}"
+  vpn_connection_id       = "${aws_vpn_connection.staging2office.id}"
+}
