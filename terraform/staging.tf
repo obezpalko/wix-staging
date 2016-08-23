@@ -14,7 +14,7 @@ variable "office_networks" {
   default = [ "10.37.0.0/24", "172.28.0.0/14", "192.168.28.0/22", "192.168.36.0/22", "192.168.40.0/21", "192.168.199.0/24" ]
 }
 variable "aus_networks" {
-  default = [ "172.16.0.0/16", "172.14.0.0/16" ]
+  default = [ "172.16.0.0/16" ]
 }
 
 ################# VPC #################
@@ -81,7 +81,7 @@ resource "aws_security_group" "wix-staging-main-sg" {
 ############## INSTANCES #################
 resource "aws_instance" "staging-instance" {
     ami                         = "ami-6c9a5a0c"
-    count                       = "${var.count}"
+    count                       = "${var.count}" 
     availability_zone           = "us-west-2b"
     ebs_optimized               = "false"
     instance_type               = "m4.large"
@@ -154,40 +154,40 @@ resource "null_resource" "staging-instance" {
         version = "12.11.18"
     }
 }
-# ###################### ROUTING TABLES ##############
-# resource "aws_route_table" "wix-staging-rt" {
-#     vpc_id     = "${aws_vpc.wix-staging.id}"
-# 
-#     route {
-#         cidr_block = "0.0.0.0/0"
-#         gateway_id = "${aws_internet_gateway.wix-staging-ig.id}"
-#     }
-#     route {
-#       cidr_block = "172.16.0.0/16"
-#       gateway_id = "${aws_vpn_gateway.staging_vpn_gw.id}"
-#     }
-# 
-#     propagating_vgws = []
-# 
-#     tags {
-#         "Name" = "wix-staging routing table"
-#     }
-# }
-# resource "aws_route_table_association" "wix-stagingdefault-route" {
-#     route_table_id = "${aws_route_table.wix-staging-rt.id}"
-#     subnet_id = "${aws_subnet.wix-staging-main-subnet.id}"
-# }
-# 
-resource "aws_network_interface" "staging-instance-eni" {
-    count             = "${var.count}"
-    subnet_id         = "${aws_subnet.wix-staging-internal-subnet.id}"
-    description       = "Internal network interface"
-    source_dest_check = false
-    attachment {
-        instance     = "${element(aws_instance.staging-instance.*.id, count.index)}"
-        device_index = 1
+###################### ROUTING TABLES ##############
+resource "aws_route_table" "wix-staging-rt" {
+    vpc_id     = "${aws_vpc.wix-staging.id}"
+
+    route {
+        cidr_block = "0.0.0.0/0"
+        gateway_id = "${aws_internet_gateway.wix-staging-ig.id}"
+    }
+    route {
+      cidr_block = "172.16.0.0/16"
+      gateway_id = "${aws_vpn_gateway.staging_vpn_gw.id}"
+    }
+
+    propagating_vgws = []
+
+    tags {
+        "Name" = "wix-staging routing table"
     }
 }
+resource "aws_route_table_association" "wix-stagingdefault-route" {
+    route_table_id = "${aws_route_table.wix-staging-rt.id}"
+    subnet_id = "${aws_subnet.wix-staging-main-subnet.id}"
+}
+
+# resource "aws_network_interface" "staging-instance-eni" {
+#     count             = "${var.count}"
+#     subnet_id         = "${aws_subnet.wix-staging-internal-subnet.id}"
+#     description       = "Internal network interface"
+#     source_dest_check = false
+#     attachment {
+#         instance     = "${element(aws_instance.staging-instance.*.id, count.index)}"
+#         device_index = 1
+#     }
+# }
 
 resource "aws_route53_zone" "ptr" {
   name = "0.100.10.in-addr.arpa"
