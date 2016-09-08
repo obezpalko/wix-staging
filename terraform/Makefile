@@ -14,9 +14,9 @@ SHELL=/bin/sh
 
 all: plan
 
-init: $(PREFIX)/.init
+init: $(PREFIX)/${REGION}$(AZ)/.init
 
-$(PREFIX)/.init:
+$(PREFIX)/${REGION}$(AZ)/.init: staging.tf
 	export $(PARAMS) && \
 		[ -d "$(PREFIX)/$${REGION}$(AZ)" ] || mkdir -p "$(PREFIX)/$${REGION}$(AZ)" && \
 		ln -sf $(CURDIR)/*.tf $(PREFIX)/$${REGION}$(AZ)/ && \
@@ -25,12 +25,24 @@ $(PREFIX)/.init:
 		terraform remote config -backend=s3 -backend-config="bucket=$(STATEBUCKET)" -backend-config="key=$${REGION}$(AZ).tfstate" \
 			-backend-config="region=$(STORE_REGION)" | tee .init
 
-pull push: $(PREFIX)/.init
+pull push: $(PREFIX)/${REGION}$(AZ)/.init
 	export $(PARAMS) && \
 	cd $(PREFIX)/$${REGION}$(AZ) && \
 	terraform remote $@
 
-plan apply refresh destroy: $(PREFIX)/.init pull
+$(PREFIX)/$${REGION}$(AZ)/.plan: $(PREFIX)/${REGION}$(AZ)/.init
+	export $(PARAMS) && \
+	cd $(PREFIX)/$${REGION}$(AZ) && \
+	terraform plan -var region=$${REGION} -var az=$(AZ) -out .plan
+
+plan: $(PREFIX)/$${REGION}$(AZ)/.plan
+
+apply: $(PREFIX)/$${REGION}$(AZ)/.plan
+	export $(PARAMS) && \
+	cd $(PREFIX)/$${REGION}$(AZ) && \
+	terraform apply .plan
+
+refresh destroy: $(PREFIX)/$${REGION}$(AZ)/.plan
 	export $(PARAMS) && \
 	cd $(PREFIX)/$${REGION}$(AZ) && \
 	terraform $@ -var region=$${REGION} -var az=$(AZ)
@@ -48,7 +60,7 @@ graph show: $(PREFIX)/.init
 taint:
 	export $(PARAMS) && \
 	cd $(PREFIX)/$${REGION}$(AZ) && \
-	terraform $@ null_resource.staging-instance.0
+	terraform $@ null_resource.staging-instance
 
 clean:
 	find . -name .init -delete

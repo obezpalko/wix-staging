@@ -9,7 +9,7 @@ variable "grid_vpc_subnet" { default = {} }
 variable "main_vpc" { default = {} }
 variable "main_chef_environment" { default = {} }
 variable "grid_chef_environment" { default = {} }
-variable "count" {default = "2" }
+variable "count" {default = "1" }
 variable "office_networks" {
   default = [ "10.37.0.0/24", "172.28.0.0/14", "192.168.28.0/22", "192.168.36.0/22", "192.168.40.0/21", "192.168.199.0/24" ]
 }
@@ -71,7 +71,7 @@ resource "aws_subnet" "wix-packer" {
     # availability_zone       = "us-west-2b"
     map_public_ip_on_launch = false
     tags {
-        "Name" = "wix-packwer subnet"
+        "Name" = "wix-packer subnet"
     }
 }
 
@@ -148,14 +148,13 @@ resource "null_resource" "staging-instance" {
         command = "knife client delete -y node-${format("%02d",count.index)}.staging.wixpress.com -c ~/chef-repo/.chef/knife.rb  || echo Not Found"
     }
 
-    # open iptables on chef
-    # provisioner "local-exec" {
-    #     command = "ssh chef.wixpress.com 'sudo iptables -A INPUT -s ${aws_instance.staging-instance.*.private_ip[count.index]}/32 -p tcp -m multiport --dports 80,443 -j ACCEPT'"
-    # }
     provisioner "remote-exec" {
       inline = [
         "echo ${aws_instance.staging-instance.*.private_ip[count.index]} node-${format("%02d",count.index)}.staging.wixpress.com",
-        "sudo sh -c '/bin/echo -e \"172.16.209.188 chef.wixpress.com\n172.16.213.71 mirror.wixpress.com\" >> /etc/hosts'",
+        "sudo sh -c '/bin/echo -e \"${aws_instance.staging-instance.*.private_ip[count.index]} node-${format("%02d",count.index)}.staging.wixpress.com\n\" >> /etc/hosts'",
+        "sudo sh -c '/bin/echo -e \"172.16.209.188 chef.wixpress.com\n172.16.213.71 mirror.wixpress.com\n172.16.222.139 gems.wixpress.com\n\" >> /etc/hosts'",
+        "sudo sh -c '/bin/echo -e \"172.16.213.79 repo.dev.wix\n\" >> /etc/hosts'",
+        "sudo sh -c 'mv /src/hosts /etc/hosts.bak && sort -u /etc/hosts.bak > /stc/hosts'",
         "sudo sh -c 'hostname node-${format("%02d",count.index)}.staging.wixpress.com ; echo node-${format("%02d",count.index)}.staging.wixpress.com > /etc/hostname'",
         "sudo rm /etc/chef/client.pem",
         "sudo apt-get update"
@@ -163,16 +162,16 @@ resource "null_resource" "staging-instance" {
     }
 
     provisioner "chef"  {
-        #TODO need to change based on location
         skip_install = false
         environment = "staging"
-        run_list = ["recipe[wix-base-minimal]", "recipe[wix-users::sysadmins]", "recipe[sudo]"]
+        attributes_json = "{ \"wix-monitoring\" : { \"do-not-monitor\" : true }, \"fqdn\": \"node-${format("%02d",count.index)}.staging.wixpress.com\"}"
+        run_list = ["role[staging]"]
         node_name = "node-${format("%02d",count.index)}.staging.wixpress.com"
         secret_key = "${file(".chef/data_bag_secret")}"
         server_url = "https://chef.wixpress.com/"
         validation_client_name = "chef-validator"
         validation_key = "${file(".chef/validation.pem")}"
-        version = "12.11.18"
+        version = "12.5.1"
     }
 }
 ###################### ROUTING TABLES ##############
@@ -217,6 +216,10 @@ resource "aws_route_table_association" "wix-staging-pub" {
     route_table_id = "${aws_route_table.wix-staging-pub.id}"
     subnet_id = "${aws_subnet.wix-staging-pub-subnet.id}"
 }
+# resource "aws_route_table_association" "wix-packer" {
+#     route_table_id = "${aws_route_table.wix-staging-rt.id}"
+#     subnet_id = "${aws_subnet.wix-packer.id}"
+# }
 
 resource "aws_route53_zone" "ptr" {
   name = "0.100.10.in-addr.arpa"
